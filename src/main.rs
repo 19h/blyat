@@ -96,7 +96,7 @@ impl Ultralight {
     }
 
     pub fn setFinishLoadingCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
-        where T: FnMut(ffi::ULView)
+        where T: FnMut(View)
     {
         let view = self.view?;
 
@@ -117,7 +117,7 @@ impl Ultralight {
     }
 
     pub fn setDOMReadyCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
-        where T: FnMut(ffi::ULView)
+        where T: FnMut(View)
     {
         let view = self.view?;
 

@@ -1,4 +1,7 @@
-use crate::ffi;
+use crate::{
+    ffi,
+    View
+};
 
 use std::{
     os::raw::{
@@ -9,13 +12,13 @@ use std::{
 
 // All callbacks that accept take a (view: ULView) argument
 
-pub unsafe fn unpack_closure_view_cb<F>(closure: &mut F) -> (*mut c_void, unsafe extern "C" fn(*mut c_void, ffi::ULView))
+pub unsafe fn unpack_closure_view_cb<F>(closure: &mut F) -> (*mut c_void, unsafe extern "C" fn(*mut c_void, View))
     where
-        F: FnMut(ffi::ULView),
+        F: FnMut(View),
 {
-    extern "C" fn trampoline<F>(data: *mut c_void, n: ffi::ULView)
+    extern "C" fn trampoline<F>(data: *mut c_void, n: View)
         where
-            F: FnMut(ffi::ULView),
+            F: FnMut(View),
     {
         let closure: &mut F = unsafe { &mut *(data as *mut F) };
         (*closure)(n);
