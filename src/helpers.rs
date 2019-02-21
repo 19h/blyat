@@ -1,27 +1,19 @@
-#[allow(
-    non_camel_case_types,
-    non_upper_case_globals,
-    non_snake_case
-)]
-
 use crate::ffi;
 use crate::helpers_internal::unpack_closure_hook_cb;
-
-pub trait HookFnMut: FnMut(
-    ffi::JSContextRef,
-    ffi::JSObjectRef,
-    ffi::JSObjectRef,
-    usize,
-    *const ffi::JSValueRef,
-    *mut ffi::JSValueRef,
-) -> ffi::JSValueRef {}
 
 pub fn createJSFunction<T> (
     view: crate::View,
     name: &'static str,
     mut hook: &mut T
 ) -> ffi::JSObjectRef
-    where T: HookFnMut
+    where T: FnMut(
+        ffi::JSContextRef,
+        ffi::JSObjectRef,
+        ffi::JSObjectRef,
+        usize,
+        *const ffi::JSValueRef,
+        *mut ffi::JSValueRef,
+    ) -> ffi::JSValueRef
 {
     unsafe {
         let (
@@ -58,7 +50,7 @@ pub fn createJSFunction<T> (
         );
 
         let (jsgctx, ..) = getJSContextFromView(view);
-//
+
         ffi::JSObjectMake(
             jsgctx,
             jsclass,

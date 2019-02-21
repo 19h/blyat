@@ -15,7 +15,7 @@ debug-assertions = true
 lto = false
 opt-level = 0
 panic = "unwind"
-rpath = false
+rpath = true
 
 [profile.release]
 debug = true
@@ -24,4 +24,4 @@ debug-assertions = true
 opt-level = 3
 panic = "abort"
 #panic = "unwind"
-rpath = false
+rpath = true
