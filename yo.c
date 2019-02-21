@@ -1,8 +1,8 @@
-#include "include/Ultralight/CAPI.h"
+#include "Ultralight/CAPI.h"
 
 bool has_loaded = false;
 
-void load_callback(ULView view) {
+void load_callback(void* user_data, ULView view) {
     printf("load");
     has_loaded = true;
 }
@@ -13,7 +13,7 @@ JSValueRef fncb (JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject,
     return JSValueMakeNumber(ctx, (double) 1123);
 }
 
-void dom_ready(ULView view) {
+void dom_ready(void* user_data, ULView view) {
     printf("dom ready....");
 
     JSContextRef jsc = ulViewGetJSContext(view);
@@ -44,7 +44,7 @@ void dom_ready(ULView view) {
         JSObjectSetProperty(
             jsgctx,
             def_obj_ref,
-            JSStringCreateWithUTF8CString("global_spotfire_hook"),
+            JSStringCreateWithUTF8CString("xxxx"),
             fxcb,
             0,
             NULL
@@ -55,7 +55,7 @@ void dom_ready(ULView view) {
         JSValueRef jsvr = JSEvaluateScript(
             jsgctx,
             JSStringCreateWithUTF8CString(
-                "window.styla={callbacks:[{render:global_spotfire_hook}]};"
+                "window.xxx={callbacks:[{render:xxxx}]};"
             ),
             def_obj_ref,
             NULL,
@@ -71,10 +71,10 @@ int main() {
 
     ULView view = ulCreateView(renderer, 1280, 768, false);
 
-    ulViewSetFinishLoadingCallback(view, load_callback);
-    ulViewSetDOMReadyCallback(view, dom_ready);
+    ulViewSetFinishLoadingCallback(view, load_callback, 0);
+    ulViewSetDOMReadyCallback(view, dom_ready, 0);
 
-    ULString url = ulCreateString("https://magazine-display.canary.eu.magalog.net/prophet/area/nae-en/home");
+    ULString url = ulCreateString("https://google.com");
 
     ulViewLoadURL(view, url);
 

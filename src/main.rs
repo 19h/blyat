@@ -1,4 +1,18 @@
-#[allow(non_camel_case_types,non_upper_case_globals,non_snake_case)]
+#![feature(try_trait)]
+#[allow(
+    non_camel_case_types,
+    non_upper_case_globals,
+    non_snake_case
+)]
+
+mod ffi;
+pub mod helpers;
+
+use helpers::{
+    evaluateScript,
+    setJSObjectProperty,
+    createJSFunction,
+};
 
 #[macro_use]
 use std::{
@@ -6,186 +20,341 @@ use std::{
         Borrow,
         BorrowMut,
     },
-    thread_local,
+    cell::{
+        RefCell
+    },
+    option::NoneError,
+    os::raw::{
+        c_int,
+        c_void
+    },
     sync::{
         Arc,
         Mutex
     },
 };
 
-pub mod ffi;
+mod helpers_internal;
+use helpers_internal::{
+    unpack_closure_view_cb,
+    unpack_closure_hook_cb
+};
 
-thread_local! {
-    static UL_CTX_LOAD_CALLBACK: Mutex<Option<Box<
-        FnMut(
-            ffi::ULView
-        ) + Send
-    >>> = Default::default();
+pub type Renderer = ffi::ULRenderer;
+pub type View = ffi::ULView;
 
-    static UL_CTX_DOM_READY_CALLBACK: Mutex<Option<Box<
-        FnMut(
-            ffi::ULView
-        ) + Send
-    >>> = Default::default();
-
-    static JS_HOOK_CALLBACK: Mutex<Option<Box<
-        FnMut(
-            ffi::JSContextRef,
-            ffi::JSObjectRef,
-            ffi::JSObjectRef,
-            usize,
-            *const ffi::JSValueRef,
-            *mut ffi::JSValueRef,
-        ) + Send
-    >>> = Default::default();
+struct Ultralight {
+    renderer: Renderer,
+    view: Option<View>,
 }
 
-unsafe extern "C" fn hook_callback (
-    ctx: ffi::JSContextRef,
-    _function: ffi::JSObjectRef,
-    _thisObject: ffi::JSObjectRef,
-    _argumentCount: usize,
-    _arguments: *const ffi::JSValueRef,
-    _exception: *mut ffi::JSValueRef,
-) -> ffi::JSValueRef {
-    println!("hook_callback callback called");
+impl Ultralight {
+    fn new(renderer: Option<Renderer>) -> Ultralight {
+        let used_renderer = match renderer {
+            Some(renderer) => renderer,
+            None => {
+                unsafe {
+                    let config = ffi::ulCreateConfig();
 
-    return ffi::JSValueMakeNumber(ctx, 1123 as f64);
-}
-
-unsafe extern "C" fn load_callback_trampoline (view: ffi::ULView) {
-    UL_CTX_LOAD_CALLBACK.with(|f|
-        match *(*f.borrow()).lock().unwrap() {
-            Some(ref mut callback) => callback(view),
-            None => panic!("Calling callback failed")
-        }
-    );
-
-    println!("{:?}", std::thread::current().id());
-    println!("loaded");
-}
-
-unsafe extern "C" fn dom_ready_callback_trampoline (view: ffi::ULView) {
-    UL_CTX_DOM_READY_CALLBACK.with(|f|
-        match *(*f.borrow()).lock().unwrap() {
-            Some(ref mut callback) => callback(view),
-            None => panic!("Calling callback failed")
-        }
-    );
-}
-
-struct Foo {
-
-}
-
-impl Foo {
-    fn new() -> Foo {
-        Foo {}
-    }
-
-    unsafe fn run (self) {
-        let config = ffi::ulCreateConfig();
-        let renderer = ffi::ulCreateRenderer(config);
-
-        let view = ffi::ulCreateView(renderer, 1280, 768, false);
-
-        let url_str = std::ffi::CString::new(
-            "https://magazine-display.prod.us.magalog.net/prophet/area/nae-en/home"
-            // "https://magazine-display.canary.eu.magalog.net/prophet/area/nae-en/home"
-            // "https://google.de"
-        ).unwrap();
-
-        let url = ffi::ulCreateString(
-            url_str.as_ptr()
-        );
-
-        let mut has_loaded = Arc::new(Mutex::new(false));
-        let has_loaded_mtx = has_loaded.clone();
-
-        let cbl = move |view: ffi::ULView| *has_loaded_mtx.lock().unwrap() = true;
-
-        let dom_loaded_cb = |view: ffi::ULView| {
-            println!("dom ready");
-
-            let jsc = ffi::ulViewGetJSContext(view);
-            let val = ffi::ulViewEvaluateScript(
-                view,
-                ffi::ulCreateString(
-                    std::ffi::CString::new(
-                        "document.body.innerHTML"
-                    ).unwrap().as_ptr()
-                )
-            );
-
-            if ffi::JSValueGetType(jsc, val) == ffi::JSType_kJSTypeString {
-                let jsgctx = ffi::JSContextGetGlobalContext(jsc);
-
-                let def_obj_ref = ffi::JSContextGetGlobalObject(jsgctx);
-
-                let fxcb = ffi::JSObjectMakeFunctionWithCallback(
-                    jsgctx,
-                    0 as *mut ffi::OpaqueJSString,
-                    Some(hook_callback)
-                );
-
-                ffi::JSObjectSetProperty(
-                    jsgctx,
-                    def_obj_ref,
-                    ffi::JSStringCreateWithUTF8CString(
-                        std::ffi::CString::new(
-                            "global_spotfire_hook"
-                        ).unwrap().as_ptr()
-                    ),
-                    fxcb,
-                    0,
-                    0 as *mut *const ffi::OpaqueJSValue
-                );
-
-                let jsvr = ffi::JSEvaluateScript(
-                    jsgctx,
-                    ffi::JSStringCreateWithUTF8CString(
-                        std::ffi::CString::new(
-                            "window.styla={callbacks:[{render:global_spotfire_hook}]};"
-                        ).unwrap().as_ptr()
-                    ),
-                    def_obj_ref,
-                    0 as *mut ffi::OpaqueJSString,
-                    ffi::kJSPropertyAttributeNone as i32,
-                    0 as *mut *const ffi::OpaqueJSValue
-                );
+                    ffi::ulCreateRenderer(config)
+                }
             }
         };
 
-        UL_CTX_LOAD_CALLBACK.with(|mut f| {
-            *(*f.borrow_mut()).lock().unwrap() = Some(Box::new(cbl))
-        });
+        Ultralight {
+            renderer: used_renderer,
+            view: None
+        }
+    }
 
-        UL_CTX_DOM_READY_CALLBACK.with(|mut f| {
-            *(*f.borrow_mut()).lock().unwrap() = Some(Box::new(dom_loaded_cb))
-        });
+    fn view(&mut self, width: u32, height: u32, transparent: bool) {
+        unsafe {
+            self.view = Some(ffi::ulCreateView(self.renderer, width, height, transparent));
+        }
+    }
 
-        ffi::ulViewSetFinishLoadingCallback(view, Some(load_callback_trampoline));
-        ffi::ulViewSetDOMReadyCallback(view, Some(dom_ready_callback_trampoline));
+    fn update(&mut self) {
+        unsafe {
+            ffi::ulUpdate(self.renderer);
+        }
+    }
 
-        ffi::ulViewLoadURL(view, url);
-
-        while !*has_loaded.lock().unwrap() {
-            ffi::ulUpdate(renderer);
+    fn updateUntilLoaded(&mut self) -> Result<(), NoneError> {
+        unsafe {
+            while ffi::ulViewIsLoading(self.view?) {
+                ffi::ulUpdate(self.renderer);
+            }
         }
 
-        ffi::ulRender(renderer);
+        Ok(())
+    }
 
-        ffi::ulBitmapWritePNG(
-            ffi::ulCreateBitmap(1280, 768, ffi::ULBitmapFormat_kBitmapFormat_RGBA8),
-            std::ffi::CString::new("output.png").unwrap().as_ptr()
+    fn render(&mut self) {
+        unsafe {
+            ffi::ulRender(self.renderer);
+        }
+    }
+
+    fn setFinishLoadingCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
+        where T: FnMut(ffi::ULView)
+    {
+        let view = self.view?;
+
+        unsafe {
+            let (
+                cb_closure,
+                cb_function
+            ) = unpack_closure_view_cb(&mut cb);
+
+            ffi::ulViewSetFinishLoadingCallback(
+                view,
+                Some(cb_function),
+                cb_closure
+            );
+        }
+
+        Ok(())
+    }
+
+    fn setDOMReadyCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
+        where T: FnMut(ffi::ULView)
+    {
+        let view = self.view?;
+
+        unsafe {
+            let (
+                cb_closure,
+                cb_function
+            ) = unpack_closure_view_cb(&mut cb);
+
+            ffi::ulViewSetDOMReadyCallback(
+                view,
+                Some(cb_function),
+                cb_closure
+            );
+        }
+
+        Ok(())
+    }
+
+    fn createFunction<T>(
+        &mut self,
+        name: &'static str,
+        mut hook: &mut T
+    ) -> Result<ffi::JSObjectRef, NoneError>
+        where T: helpers::HookFnMut {
+        Ok(
+            createJSFunction(
+                self.view?,
+                name,
+                hook
+            )
+        )
+    }
+
+    fn setJSObjectProperty(
+        &mut self,
+        name: &'static str,
+        object: ffi::JSObjectRef
+    ) -> Result<(), NoneError> {
+        setJSObjectProperty(
+            self.view?,
+            name,
+            object
         );
+
+        Ok(())
+    }
+
+    fn evaluateScript(
+        &mut self,
+        name: &'static str,
+    ) -> Result<ffi::JSValueRef, NoneError> {
+        Ok(evaluateScript(self.view?, name))
+    }
+
+    fn writePNGToFile(
+        &mut self,
+        file_name: &'static str,
+    ) -> Result<bool, NoneError> {
+        unsafe {
+            Ok(
+                ffi::ulBitmapWritePNG(
+                    ffi::ulViewGetBitmap( self.view? ),
+                    std::ffi::CString::new(file_name).unwrap().as_ptr()
+                )
+            )
+        }
+    }
+
+    fn isLoading(&self) -> bool {
+        match self.view {
+            Some(view) => unsafe {
+                ffi::ulViewIsLoading(view)
+            },
+            None => false
+        }
     }
 }
 
+//struct Foo {
+//
+//}
+//
+//impl Foo {
+//    fn new() -> Foo {
+//        Foo {}
+//    }
+//
+//    unsafe fn run (self) {
+//        let config = ffi::ulCreateConfig();
+//        let renderer = ffi::ulCreateRenderer(config);
+//
+//        let view = ffi::ulCreateView(renderer, 1920, 1080, false);
+//
+//        let mut styla_ready = Arc::new(Mutex::new(false));
+//
+//        {
+//            let mut loaded_cb = move |view: ffi::ULView| {
+//                println!("loaded");
+//            };
+//
+//            let mut dom_loaded_cb = |view: ffi::ULView| {
+//                println!("dom ready");
+//            };
+//
+//            let (cb_ld_closure, cb_ld_callback) = unpack_closure_view_cb(&mut loaded_cb);
+//            let (cb_dom_ld_closure, cb_dom_ld_callback) = unpack_closure_view_cb(&mut dom_loaded_cb);
+//
+//            ffi::ulViewSetFinishLoadingCallback(view, Some(cb_ld_callback), cb_ld_closure);
+//            ffi::ulViewSetDOMReadyCallback(view, Some(cb_dom_ld_callback), cb_dom_ld_closure);
+//        }
+//
+//        {
+//            let strdy_mtx = styla_ready.clone();
+//
+//            let mut hook = move |
+//                ctx: ffi::JSContextRef,
+//                function: ffi::JSObjectRef,
+//                thisObject: ffi::JSObjectRef,
+//                argumentCount: usize,
+//                arguments: *const ffi::JSValueRef,
+//                exception: *mut ffi::JSValueRef,
+//            | {
+//                println!("hook called!");
+//
+//                *strdy_mtx.lock().unwrap() = true;
+//                ffi::JSValueMakeNumber(ctx, 1f64)
+//            };
+//
+//            let (hook_cl, hook_cb) = unpack_closure_hook_cb(&mut hook);
+//
+//            let classname_str = std::ffi::CString::new("SomeClass").unwrap();
+//
+//            let mut jsclassdef = ffi::JSClassDefinition {
+//                version: 0,
+//                attributes: 0,
+//                className: classname_str.as_ptr(),
+//                parentClass: 0 as ffi::JSClassRef,
+//                staticValues: 0 as *const ffi::JSStaticValue,
+//                staticFunctions: 0 as *const ffi::JSStaticFunction,
+//                initialize: None,
+//                hasProperty: None,
+//                getProperty: None,
+//                setProperty: None,
+//                deleteProperty: None,
+//                getPropertyNames: None,
+//                callAsConstructor: None,
+//                hasInstance: None,
+//                convertToType: None,
+//                finalize: None,
+//                callAsFunction: Some(hook_cb),
+//                // need to implement drop!
+//                //finalize: Some(|| std::mem::drop(jsclass)),
+//            };
+//
+//            let jsclass = ffi::JSClassCreate(
+//                &mut jsclassdef
+//            );
+//
+//            let jsgctx = ffi::ulViewGetJSContext(view);
+//            let def_obj_ref = ffi::JSContextGetGlobalObject(jsgctx);
+//
+//            let nafu = ffi::JSObjectMake(jsgctx, jsclass, hook_cl);
+//
+//            ffi::JSObjectSetProperty(
+//                jsgctx,
+//                def_obj_ref,
+//                ffi::JSStringCreateWithUTF8CString(
+//                    std::ffi::CString::new(
+//                        "global_spotfire_hook"
+//                    ).unwrap().as_ptr()
+//                ),
+//                nafu,
+//                0,
+//                0 as *mut *const ffi::OpaqueJSValue
+//            );
+//
+//            let jsvr = ffi::JSEvaluateScript(
+//                jsgctx,
+//                ffi::JSStringCreateWithUTF8CString(
+//                    std::ffi::CString::new(
+//                        "window.styla={callbacks:[{render:global_spotfire_hook}]};"
+//                    ).unwrap().as_ptr()
+//                ),
+//                def_obj_ref,
+//                0 as *mut ffi::OpaqueJSString,
+//                ffi::kJSPropertyAttributeNone as i32,
+//                0 as *mut *const ffi::OpaqueJSValue
+//            );
+//        }
+//
+//        {
+//            let url_str = std::ffi::CString::new(
+//                "https://magazine-display.prod.us.magalog.net/prophet/area/nae-en/home"
+//                // "https://magazine-display.canary.eu.magalog.net/prophet/area/nae-en/home"
+//            ).unwrap();
+//
+//            let url = ffi::ulCreateString(
+//                url_str.as_ptr()
+//            );
+//
+//            ffi::ulViewLoadURL(view, url);
+//        }
+//
+//        //while !has_loaded {
+//        while ffi::ulViewIsLoading(view) {
+//            ffi::ulUpdate(renderer);
+//        }
+//
+//        ffi::ulRender(renderer);
+//
+//        println!("yolo");
+//
+//        ffi::ulBitmapWritePNG(
+//            ffi::ulViewGetBitmap( view ),
+//            std::ffi::CString::new("output.png").unwrap().as_ptr()
+//        );
+//    }
+//}
+
 fn main() {
-    unsafe {
-        Foo::new().run();
-    }
+//    unsafe {
+//        Foo::new().run();
+//    }
+
+    let mut ul = Ultralight::new(None);
+
+    ul.view(1920, 1080, false);
+
+    ul.setFinishLoadingCallback(|_view| println!("loaded!"));
+    ul.setDOMReadyCallback(|_view| println!("loaded!"));
+
+    ul.updateUntilLoaded();
+
+    ul.render();
+
+    ul.writePNGToFile("output.png");
 
     println!("hello");
 }
