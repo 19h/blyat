@@ -43,13 +43,13 @@ use helpers_internal::{
 pub type Renderer = ffi::ULRenderer;
 pub type View = ffi::ULView;
 
-struct Ultralight {
+pub struct Ultralight {
     renderer: Renderer,
     view: Option<View>,
 }
 
 impl Ultralight {
-    fn new(renderer: Option<Renderer>) -> Ultralight {
+    pub fn new(renderer: Option<Renderer>) -> Ultralight {
         let used_renderer = match renderer {
             Some(renderer) => renderer,
             None => {
@@ -67,19 +67,19 @@ impl Ultralight {
         }
     }
 
-    fn view(&mut self, width: u32, height: u32, transparent: bool) {
+    pub fn view(&mut self, width: u32, height: u32, transparent: bool) {
         unsafe {
             self.view = Some(ffi::ulCreateView(self.renderer, width, height, transparent));
         }
     }
 
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         unsafe {
             ffi::ulUpdate(self.renderer);
         }
     }
 
-    fn updateUntilLoaded(&mut self) -> Result<(), NoneError> {
+    pub fn updateUntilLoaded(&mut self) -> Result<(), NoneError> {
         unsafe {
             while ffi::ulViewIsLoading(self.view?) {
                 ffi::ulUpdate(self.renderer);
@@ -89,13 +89,13 @@ impl Ultralight {
         Ok(())
     }
 
-    fn render(&mut self) {
+    pub fn render(&mut self) {
         unsafe {
             ffi::ulRender(self.renderer);
         }
     }
 
-    fn setFinishLoadingCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
+    pub fn setFinishLoadingCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
         where T: FnMut(ffi::ULView)
     {
         let view = self.view?;
@@ -116,7 +116,7 @@ impl Ultralight {
         Ok(())
     }
 
-    fn setDOMReadyCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
+    pub fn setDOMReadyCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
         where T: FnMut(ffi::ULView)
     {
         let view = self.view?;
@@ -137,7 +137,7 @@ impl Ultralight {
         Ok(())
     }
 
-    fn createFunction<T>(
+    pub fn createFunction<T>(
         &mut self,
         name: &'static str,
         mut hook: &mut T
@@ -152,7 +152,7 @@ impl Ultralight {
         )
     }
 
-    fn setJSObjectProperty(
+    pub fn setJSObjectProperty(
         &mut self,
         name: &'static str,
         object: ffi::JSObjectRef
@@ -166,14 +166,14 @@ impl Ultralight {
         Ok(())
     }
 
-    fn evaluateScript(
+    pub fn evaluateScript(
         &mut self,
         name: &'static str,
     ) -> Result<ffi::JSValueRef, NoneError> {
         Ok(evaluateScript(self.view?, name))
     }
 
-    fn writePNGToFile(
+    pub fn writePNGToFile(
         &mut self,
         file_name: &'static str,
     ) -> Result<bool, NoneError> {
@@ -187,7 +187,7 @@ impl Ultralight {
         }
     }
 
-    fn isLoading(&self) -> bool {
+    pub fn isLoading(&self) -> bool {
         match self.view {
             Some(view) => unsafe {
                 ffi::ulViewIsLoading(view)
