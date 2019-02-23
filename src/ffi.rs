@@ -1926,7 +1926,7 @@ extern "C" {
     pub fn ulConfigSetEnableImages(config: ULConfig, enabled: bool);
 }
 extern "C" {
-    #[doc = " Set whether JavaScript should be eanbled (Default = True)"]
+    #[doc = " Set whether JavaScript should be enabled (Default = True)"]
     #[link_name = "\u{1}_ulConfigSetEnableJavaScript"]
     pub fn ulConfigSetEnableJavaScript(config: ULConfig, enabled: bool);
 }

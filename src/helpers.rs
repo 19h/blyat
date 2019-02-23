@@ -1,7 +1,7 @@
 use crate::ffi;
 use crate::helpers_internal::unpack_closure_hook_cb;
 
-pub fn createJSFunction<T> (
+pub fn create_js_function<T> (
     view: crate::View,
     name: &'static str,
     mut hook: &mut T
@@ -23,13 +23,13 @@ pub fn createJSFunction<T> (
 
         let classname_str = std::ffi::CString::new(name).unwrap();
 
-        let mut jsclassdef = ffi::JSClassDefinition {
+        let jsclassdef = ffi::JSClassDefinition {
             version: 0,
             attributes: 0,
             className: classname_str.as_ptr(),
-            parentClass: 0 as ffi::JSClassRef,
-            staticValues: 0 as *const ffi::JSStaticValue,
-            staticFunctions: 0 as *const ffi::JSStaticFunction,
+            parentClass: std::ptr::null_mut() as ffi::JSClassRef,
+            staticValues: std::ptr::null() as *const ffi::JSStaticValue,
+            staticFunctions: std::ptr::null() as *const ffi::JSStaticFunction,
             initialize: None,
             hasProperty: None,
             getProperty: None,
@@ -46,7 +46,7 @@ pub fn createJSFunction<T> (
         };
 
         let jsclass = ffi::JSClassCreate(
-            &mut jsclassdef
+            &jsclassdef
         );
 
         let (jsgctx, ..) = getJSContextFromView(view);
@@ -70,7 +70,7 @@ pub fn getJSContextFromView(
     }
 }
 
-pub fn setJSObjectProperty(
+pub fn set_js_object_property(
     view: crate::View,
     name: &'static str,
     object: ffi::JSObjectRef
@@ -78,10 +78,12 @@ pub fn setJSObjectProperty(
     unsafe {
         let (jsgctx, jsgctx_object) = getJSContextFromView(view);
 
+        let c_name = std::ffi::CString::new(
+            name
+        ).unwrap();
+
         let propertyName = ffi::JSStringCreateWithUTF8CString(
-            std::ffi::CString::new(
-                name
-            ).unwrap().as_ptr()
+            c_name.as_ptr()
         );
 
         ffi::JSObjectSetProperty(
@@ -90,31 +92,33 @@ pub fn setJSObjectProperty(
             propertyName,
             object,
             0,
-            0 as *mut *const ffi::OpaqueJSValue
+            std::ptr::null_mut() as *mut *const ffi::OpaqueJSValue
         );
     }
 }
 
 // "window.styla={callbacks:[{render:global_spotfire_hook}]};"
 
-pub fn evaluateScript(
+pub fn evaluate_script(
     view: crate::View,
     script: &'static str
 ) -> ffi::JSValueRef {
     unsafe {
         let (jsgctx, jsgctx_object) = getJSContextFromView(view);
 
+        let script_c_str = std::ffi::CString::new(
+            script
+        ).unwrap();
+
         ffi::JSEvaluateScript(
             jsgctx,
             ffi::JSStringCreateWithUTF8CString(
-                std::ffi::CString::new(
-                    script
-                ).unwrap().as_ptr()
+                script_c_str.as_ptr()
             ),
             jsgctx_object,
-            0 as *mut ffi::OpaqueJSString,
+            std::ptr::null_mut() as *mut ffi::OpaqueJSString,
             ffi::kJSPropertyAttributeNone as i32,
-            0 as *mut *const ffi::OpaqueJSValue
+            std::ptr::null_mut() as *mut *const ffi::OpaqueJSValue
         )
     }
 }

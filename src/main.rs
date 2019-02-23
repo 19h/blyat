@@ -10,11 +10,12 @@
 
 mod ffi;
 pub mod helpers;
+pub mod config;
 
 use helpers::{
-    evaluateScript,
-    setJSObjectProperty,
-    createJSFunction,
+    evaluate_script,
+    set_js_object_property,
+    create_js_function,
 };
 
 use std::{
@@ -22,10 +23,13 @@ use std::{
         RefCell
     },
     option::NoneError,
+    os::raw::c_void,
+    time::Duration,
 };
 
 mod helpers_internal;
 use helpers_internal::{
+    log_forward_cb,
     unpack_closure_view_cb,
 };
 
@@ -33,26 +37,32 @@ use crate::ffi::JSValueRef;
 
 pub type Renderer = ffi::ULRenderer;
 pub type View = ffi::ULView;
+pub type Config = config::UltralightConfig;
 
 pub struct Ultralight {
+    config: Config,
     renderer: Renderer,
     view: Option<View>,
 }
 
 impl Ultralight {
-    pub fn new(renderer: Option<Renderer>) -> Ultralight {
+    pub fn new(config: Option<Config>, renderer: Option<Renderer>) -> Ultralight {
+        let ulconfig = match config {
+            Some(config) => config,
+            None => Config::new()
+        };
+
         let used_renderer = match renderer {
             Some(renderer) => renderer,
             None => {
                 unsafe {
-                    let config = ffi::ulCreateConfig();
-
-                    ffi::ulCreateRenderer(config)
+                    ffi::ulCreateRenderer(ulconfig.to_ulconfig())
                 }
             }
         };
 
         Ultralight {
+            config: ulconfig,
             renderer: used_renderer,
             view: None
         }
@@ -64,7 +74,7 @@ impl Ultralight {
         }
     }
 
-    pub fn loadUrl(&mut self, url: &'static str) -> Result<(), NoneError> {
+    pub fn load_url(&mut self, url: &'static str) -> Result<(), NoneError> {
         unsafe {
             let url_str = std::ffi::CString::new(
                 url
@@ -80,7 +90,7 @@ impl Ultralight {
         Ok(())
     }
 
-    pub fn loadHTML(&mut self, code: &'static str) -> Result<(), NoneError> {
+    pub fn load_html(&mut self, code: &'static str) -> Result<(), NoneError> {
         unsafe {
             let code_str = std::ffi::CString::new(
                 code
@@ -102,7 +112,7 @@ impl Ultralight {
         }
     }
 
-    pub fn updateUntilLoaded(&mut self) -> Result<(), NoneError> {
+    pub fn update_until_loaded(&mut self) -> Result<(), NoneError> {
         unsafe {
             while ffi::ulViewIsLoading(self.view?) {
                 ffi::ulUpdate(self.renderer);
@@ -118,7 +128,7 @@ impl Ultralight {
         }
     }
 
-    pub fn setFinishLoadingCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
+    pub fn set_finish_loading_callback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
         where T: FnMut(View)
     {
         let view = self.view?;
@@ -139,7 +149,7 @@ impl Ultralight {
         Ok(())
     }
 
-    pub fn setDOMReadyCallback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
+    pub fn set_dom_ready_callback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
         where T: FnMut(View)
     {
         let view = self.view?;
@@ -160,10 +170,10 @@ impl Ultralight {
         Ok(())
     }
 
-    pub fn createFunction<T>(
+    pub fn create_function<T>(
         &mut self,
         name: &'static str,
-        mut hook: &mut T
+        hook: &mut T
     ) -> Result<ffi::JSObjectRef, NoneError>
         where T: FnMut(
             ffi::JSContextRef,
@@ -175,7 +185,7 @@ impl Ultralight {
         ) -> ffi::JSValueRef
     {
         Ok(
-            createJSFunction(
+            create_js_function(
                 self.view?,
                 name,
                 hook
@@ -183,12 +193,12 @@ impl Ultralight {
         )
     }
 
-    pub fn setJSObjectProperty(
+    pub fn set_js_object_property(
         &mut self,
         name: &'static str,
         object: ffi::JSObjectRef
     ) -> Result<(), NoneError> {
-        setJSObjectProperty(
+        set_js_object_property(
             self.view?,
             name,
             object
@@ -197,34 +207,50 @@ impl Ultralight {
         Ok(())
     }
 
-    pub fn evaluateScript(
+    pub fn evaluate_script(
         &mut self,
         script: &'static str,
     ) -> Result<ffi::JSValueRef, NoneError> {
-        Ok(evaluateScript(self.view?, script))
+        Ok(evaluate_script(self.view?, script))
     }
 
-    pub fn writePNGToFile(
+    pub fn write_png_to_file(
         &mut self,
         file_name: &'static str,
     ) -> Result<bool, NoneError> {
         unsafe {
+            let bitmap = ffi::ulViewGetBitmap( self.view? );
+
+            let fn_c_str = std::ffi::CString::new(file_name).unwrap();
+
             Ok(
                 ffi::ulBitmapWritePNG(
-                    ffi::ulViewGetBitmap( self.view? ),
-                    std::ffi::CString::new(file_name).unwrap().as_ptr()
+                    bitmap,
+                    fn_c_str.as_ptr()
                 )
             )
         }
     }
 
-    pub fn isLoading(&self) -> bool {
+    pub fn is_loading(&self) -> bool {
         match self.view {
             Some(view) => unsafe {
                 ffi::ulViewIsLoading(view)
             },
             None => false
         }
+    }
+
+    pub fn log_to_stdout(&mut self) -> Result<(), NoneError> {
+        unsafe {
+            ffi::ulViewSetAddConsoleMessageCallback(
+                self.view?,
+                Some(log_forward_cb),
+                std::ptr::null_mut() as *mut c_void
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -233,17 +259,24 @@ thread_local! {
 }
 
 fn main() {
-    let mut ul = Ultralight::new(None);
+    let config = Config::new();
 
-    ul.view(1920, 1080, false);
+    let mut ul = Ultralight::new(Some(config), None);
 
-    //ul.loadUrl("https://magazine-display.prod.us.magalog.net/prophet/area/nae-en/home");
-    ul.loadUrl("https://www.foundationdb.org/blog/announcing-record-layer/");
+    ul.view(1920, 15000, false);
+    ul.log_to_stdout();
 
-    ul.setFinishLoadingCallback(|_view| println!("loaded!"));
-    ul.setDOMReadyCallback(|_view| println!("dom ready!"));
+    //ul.load_url("https://www.foundationdb.org/blog/announcing-record-layer/");
+    //ul.load_url("https://magazines.styla.com/prophet/area/nae-en/all");
+    //ul.load_url("https://legalizepsychedelics.com");
+    //ul.load_url("https://r3.dtr.is");
+    ul.load_url("https://psychonautwiki.org/wiki/LSD");
+    //ul.load_url("https://en.wikipedia.org/wiki/Love");
 
-    ul.updateUntilLoaded();
+    ul.set_finish_loading_callback(|_view| println!("loaded!"));
+    ul.set_dom_ready_callback(|_view| println!("dom ready!"));
+
+    ul.update_until_loaded();
 
     {
         let mut hook = |
@@ -263,15 +296,14 @@ fn main() {
             }
         };
 
-        match ul.createFunction("hook", &mut hook) {
-            Ok(func) => {
-                ul.setJSObjectProperty("hook", func);
-            },
-            _ => {}
+        if let Ok(func) = ul.create_function("hook", &mut hook) {
+            ul.set_js_object_property("hook", func);
         }
 
-        //ul.evaluateScript("window.styla.callbacks=[{render:hook}]");
-        ul.evaluateScript("window.setTimeout(hook, 3000)");
+        ul.evaluate_script(r#"
+            console.log(123);
+            window.setTimeout(hook, 3000);
+        "#);
     }
 
     let mut styla_loaded = false;
@@ -281,12 +313,12 @@ fn main() {
 
         STYLA_LOADED.with(|f| styla_loaded = *f.borrow());
 
-        std::thread::sleep_ms(10);
+        std::thread::sleep(Duration::from_millis(10));
     }
 
     ul.render();
 
-    ul.writePNGToFile("output.png");
+    ul.write_png_to_file("output.png");
 
     println!("finish");
 }

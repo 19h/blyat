@@ -79,3 +79,61 @@ pub unsafe fn unpack_closure_hook_cb<F>(closure: &mut F) -> (*mut c_void, Closur
 
     (closure as *mut F as *mut c_void, trampoline::<F>)
 }
+
+static msg_parsing_failed: &'static str = "!parsing failed!";
+
+pub unsafe extern "C" fn log_forward_cb(
+    user_data: *mut ::std::os::raw::c_void,
+    caller: View,
+    source: ffi::ULMessageSource,           /* u32 */
+    level: ffi::ULMessageLevel,             /* u32 */
+    message: ffi::ULString,                 /* *mut C_String aka *mut u8 */
+    line_number: ::std::os::raw::c_uint,    /* u32 */
+    column_number: ::std::os::raw::c_uint,  /* u32 */
+    source_id: ffi::ULString,               /* *mut C_String aka *mut u8 */
+) {
+    let level = match level {
+        ffi::ULMessageLevel_kMessageLevel_Log => "log",
+        ffi::ULMessageLevel_kMessageLevel_Warning => "warning",
+        ffi::ULMessageLevel_kMessageLevel_Error => "error",
+        ffi::ULMessageLevel_kMessageLevel_Debug => "debug",
+        ffi::ULMessageLevel_kMessageLevel_Info => "info",
+        _ => "unknown",
+    };
+
+    let source = match source {
+        ffi::ULMessageSource_kMessageSource_XML => "xml",
+        ffi::ULMessageSource_kMessageSource_JS => "js",
+        ffi::ULMessageSource_kMessageSource_Network => "network",
+        ffi::ULMessageSource_kMessageSource_ConsoleAPI => "consoleapi",
+        ffi::ULMessageSource_kMessageSource_Storage => "storage",
+        ffi::ULMessageSource_kMessageSource_AppCache => "appcache",
+        ffi::ULMessageSource_kMessageSource_Rendering => "rendering",
+        ffi::ULMessageSource_kMessageSource_CSS => "css",
+        ffi::ULMessageSource_kMessageSource_Security => "security",
+        ffi::ULMessageSource_kMessageSource_ContentBlocker => "contentblocker",
+        ffi::ULMessageSource_kMessageSource_Other => "other",
+        _ => "unknown",
+    };
+
+    let message = match String::from_utf16(std::slice::from_raw_parts_mut(
+        ffi::ulStringGetData(message),
+        ffi::ulStringGetLength(message),
+    )) {
+        Ok(msg) => msg,
+        Err(_) => msg_parsing_failed.to_string(),
+    };
+
+    let source_id = match String::from_utf16(std::slice::from_raw_parts_mut(
+        ffi::ulStringGetData(source_id),
+        ffi::ulStringGetLength(source_id),
+    )) {
+        Ok(src) => src,
+        Err(_) => msg_parsing_failed.to_string(),
+    };
+
+    println!(
+        "[{}] [{}] {} ({}:{}:{})",
+        level, source, message, source_id, line_number, column_number
+    );
+}
