@@ -128,6 +128,34 @@ impl Ultralight {
         }
     }
 
+    pub fn scroll(&mut self, delta_x: i32, delta_y: i32) -> Result<(), NoneError> {
+        unsafe {
+            let scrollEvent = ffi::ulCreateScrollEvent(
+                ffi::ULScrollEventType_kScrollEventType_ScrollByPixel,
+                delta_x,
+                delta_y
+            );
+
+            ffi::ulViewFireScrollEvent(self.view?, scrollEvent);
+
+            ffi::ulDestroyScrollEvent(scrollEvent);
+
+            Ok(())
+        }
+    }
+
+    pub fn get_scroll_height(&mut self) -> Result<f64, NoneError> {
+        unsafe {
+            let (jsgctx, _) = helpers::getJSContextFromView(self.view?);
+
+            Ok(ffi::JSValueToNumber(
+                jsgctx,
+                self.evaluate_script("document.body.scrollHeight").unwrap(),
+                std::ptr::null_mut()
+            ))
+        }
+    }
+
     pub fn set_finish_loading_callback<T>(&mut self, mut cb: T) -> Result<(), NoneError>
         where T: FnMut(View)
     {
@@ -214,18 +242,44 @@ impl Ultralight {
         Ok(evaluate_script(self.view?, script))
     }
 
+    pub fn get_raw_pixels(&mut self) -> Result<Vec<u8>, NoneError> {
+        unsafe {
+            let bitmap_obj = ffi::ulViewGetBitmap( self.view? );
+
+            let bitmap = ffi::ulBitmapLockPixels(bitmap_obj);
+            let bitmap_size = ffi::ulBitmapGetSize(bitmap_obj);
+
+            let bitmap_raw = std::slice::from_raw_parts_mut(
+                bitmap as *mut u8,
+                bitmap_size,
+            );
+
+            ffi::ulBitmapUnlockPixels(bitmap_obj);
+
+            Ok(bitmap_raw.to_vec())
+        }
+    }
+
     pub fn write_png_to_file(
         &mut self,
         file_name: &'static str,
     ) -> Result<bool, NoneError> {
         unsafe {
-            let bitmap = ffi::ulViewGetBitmap( self.view? );
+            let bitmap_obj = ffi::ulViewGetBitmap( self.view? );
+
+            let bitmap = ffi::ulBitmapLockPixels(bitmap_obj);
+            let bitmap_size = ffi::ulBitmapGetSize(bitmap_obj);
+
+            let bitmap_raw = std::slice::from_raw_parts_mut(
+                bitmap as *mut u8,
+                bitmap_size,
+            );
 
             let fn_c_str = std::ffi::CString::new(file_name).unwrap();
 
             Ok(
                 ffi::ulBitmapWritePNG(
-                    bitmap,
+                    bitmap_obj,
                     fn_c_str.as_ptr()
                 )
             )
@@ -263,14 +317,15 @@ fn main() {
 
     let mut ul = Ultralight::new(Some(config), None);
 
-    ul.view(1920, 15000, false);
+    ul.view(1920, 1080, false);
     ul.log_to_stdout();
 
-    //ul.load_url("https://www.foundationdb.org/blog/announcing-record-layer/");
+    ul.load_url("https://www.foundationdb.org/blog/announcing-record-layer/");
     //ul.load_url("https://magazines.styla.com/prophet/area/nae-en/all");
     //ul.load_url("https://legalizepsychedelics.com");
     //ul.load_url("https://r3.dtr.is");
-    ul.load_url("https://psychonautwiki.org/wiki/LSD");
+    //ul.load_url("https://www.styla.com/landing-pages/");
+    //ul.load_url("https://psychonautwiki.org/wiki/LSD");
     //ul.load_url("https://en.wikipedia.org/wiki/Love");
 
     ul.set_finish_loading_callback(|_view| println!("loaded!"));
@@ -302,7 +357,8 @@ fn main() {
 
         ul.evaluate_script(r#"
             console.log(123);
-            window.setTimeout(hook, 3000);
+            //window.setTimeout(hook, 3000);
+            hook();
         "#);
     }
 
@@ -316,7 +372,86 @@ fn main() {
         std::thread::sleep(Duration::from_millis(10));
     }
 
-    ul.render();
+    unsafe {
+        let mut frames: Vec<u8> = Vec::new();
+
+        ul.render();
+
+        let width = 1920u32;
+        let height = 1080u32;
+
+        let bpp = 4u32;
+        let row_bytes = width * bpp;
+
+        println!(
+            "{:?} {:?} {:?} - {:?} {:?} {:?}",
+            ul.get_scroll_height().unwrap(),
+            ul.get_scroll_height().unwrap() / height as f64,
+            ul.get_scroll_height().unwrap() % height as f64,
+            ul.get_scroll_height().unwrap() as u64,
+            (ul.get_scroll_height().unwrap() / height as f64) as u64,
+            ul.get_scroll_height().unwrap() % height as f64,
+        );
+
+        let scroll_height = ul.get_scroll_height().unwrap();
+        let frame_modulo = scroll_height % height as f64;
+
+        let snapshot_num = (scroll_height / height as f64) as usize;
+
+        let extra_frame = match frame_modulo {
+            0.0 => 0,
+            _ => 1
+        };
+
+        let last_frame_skip_rows = (height - frame_modulo as u32) as usize;
+
+        let size = row_bytes * scroll_height as u32;
+
+        for i in 0..(snapshot_num + extra_frame) {
+            if let Ok(mut pixels) = ul.get_raw_pixels() {
+                println!("i {}; lfsr {}", i, last_frame_skip_rows * (bpp * width) as usize);
+                println!("sn {}; fm {}", snapshot_num, frame_modulo);
+                println!("pl {} pl,lfsr {}", pixels.len(), pixels.len() - (last_frame_skip_rows * (bpp * width) as usize));
+
+                let mut pixelbuf = {
+                    if i == snapshot_num && frame_modulo != 0.0 {
+                        pixels.iter()
+                            .skip(last_frame_skip_rows * (bpp * width) as usize)
+                            .map(|vec| *vec)
+                            .collect::<Vec<u8>>()
+                    } else {
+                        pixels
+                    }
+                };
+
+                frames.append(
+                    &mut pixelbuf
+                );
+
+                println!("{}", frames.len());
+            }
+
+            ul.scroll(0, -1i32 * height as i32);
+            ul.render();
+        }
+
+        let xbitmap = ffi::ulCreateBitmapFromPixels(
+            width,
+            scroll_height as u32,
+            ffi::ULBitmapFormat_kBitmapFormat_RGBA8,
+            row_bytes as u32,
+            frames.as_ptr() as *const c_void,
+            size as usize,
+            false,
+        );
+
+        let fn_c_str = std::ffi::CString::new("test.png").unwrap();
+
+        ffi::ulBitmapWritePNG(
+            xbitmap,
+            fn_c_str.as_ptr()
+        );
+    }
 
     ul.write_png_to_file("output.png");
 
