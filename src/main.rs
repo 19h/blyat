@@ -383,16 +383,6 @@ fn main() {
         let bpp = 4u32;
         let row_bytes = width * bpp;
 
-        println!(
-            "{:?} {:?} {:?} - {:?} {:?} {:?}",
-            ul.get_scroll_height().unwrap(),
-            ul.get_scroll_height().unwrap() / height as f64,
-            ul.get_scroll_height().unwrap() % height as f64,
-            ul.get_scroll_height().unwrap() as u64,
-            (ul.get_scroll_height().unwrap() / height as f64) as u64,
-            ul.get_scroll_height().unwrap() % height as f64,
-        );
-
         let scroll_height = ul.get_scroll_height().unwrap();
         let frame_modulo = scroll_height % height as f64;
 
@@ -409,10 +399,6 @@ fn main() {
 
         for i in 0..(snapshot_num + extra_frame) {
             if let Ok(mut pixels) = ul.get_raw_pixels() {
-                println!("i {}; lfsr {}", i, last_frame_skip_rows * (bpp * width) as usize);
-                println!("sn {}; fm {}", snapshot_num, frame_modulo);
-                println!("pl {} pl,lfsr {}", pixels.len(), pixels.len() - (last_frame_skip_rows * (bpp * width) as usize));
-
                 let mut pixelbuf = {
                     if i == snapshot_num && frame_modulo != 0.0 {
                         pixels.iter()
@@ -427,8 +413,6 @@ fn main() {
                 frames.append(
                     &mut pixelbuf
                 );
-
-                println!("{}", frames.len());
             }
 
             ul.scroll(0, -1i32 * height as i32);
