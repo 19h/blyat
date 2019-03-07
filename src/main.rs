@@ -308,11 +308,11 @@ impl Ultralight {
     }
 }
 
-thread_local! {
-    static STYLA_LOADED: RefCell<bool> = RefCell::new(false);
-}
+//thread_local! {
+//    static STYLA_LOADED: RefCell<bool> = RefCell::new(false);
+//}
 
-fn main() {
+fn sek() {
     let config = Config::new();
 
     let mut ul = Ultralight::new(Some(config), None);
@@ -320,12 +320,13 @@ fn main() {
     ul.view(1920, 1080, false);
     ul.log_to_stdout();
 
-    ul.load_url("https://www.foundationdb.org/blog/announcing-record-layer/");
+    //ul.load_url("https://www.foundationdb.org/blog/announcing-record-layer/");
     //ul.load_url("https://magazines.styla.com/prophet/area/nae-en/all");
     //ul.load_url("https://legalizepsychedelics.com");
     //ul.load_url("https://r3.dtr.is");
+    //ul.load_url("https://apple.com");
     //ul.load_url("https://www.styla.com/landing-pages/");
-    //ul.load_url("https://psychonautwiki.org/wiki/LSD");
+    ul.load_url("https://psychonautwiki.org/wiki/LSD");
     //ul.load_url("https://en.wikipedia.org/wiki/Love");
 
     ul.set_finish_loading_callback(|_view| println!("loaded!"));
@@ -344,7 +345,7 @@ fn main() {
         | -> JSValueRef {
             println!("hook was called!");
 
-            STYLA_LOADED.with(|f| *f.borrow_mut() = true);
+//            STYLA_LOADED.with(|f| *f.borrow_mut() = true);
 
             unsafe {
                 ffi::JSValueMakeNumber(ctx, 0f64)
@@ -362,15 +363,15 @@ fn main() {
         "#);
     }
 
-    let mut styla_loaded = false;
-
-    while !styla_loaded {
-        ul.update();
-
-        STYLA_LOADED.with(|f| styla_loaded = *f.borrow());
-
-        std::thread::sleep(Duration::from_millis(10));
-    }
+//    let mut styla_loaded = false;
+//
+//    while !styla_loaded {
+//        ul.update();
+//
+//        STYLA_LOADED.with(|f| styla_loaded = *f.borrow());
+//
+//        std::thread::sleep(Duration::from_millis(10));
+//    }
 
     unsafe {
         let mut frames: Vec<u8> = Vec::new();
@@ -388,9 +389,12 @@ fn main() {
 
         let snapshot_num = (scroll_height / height as f64) as usize;
 
-        let extra_frame = match frame_modulo {
-            0.0 => 0,
-            _ => 1
+        let extra_frame = {
+            if frame_modulo == 0.0 {
+                0
+            } else {
+                1
+            }
         };
 
         let last_frame_skip_rows = (height - frame_modulo as u32) as usize;
@@ -398,7 +402,7 @@ fn main() {
         let size = row_bytes * scroll_height as u32;
 
         for i in 0..(snapshot_num + extra_frame) {
-            if let Ok(mut pixels) = ul.get_raw_pixels() {
+            if let Ok(pixels) = ul.get_raw_pixels() {
                 let mut pixelbuf = {
                     if i == snapshot_num && frame_modulo != 0.0 {
                         pixels.iter()
@@ -440,4 +444,14 @@ fn main() {
     ul.write_png_to_file("output.png");
 
     println!("finish");
+}
+
+fn main() {
+    //for _ in 0..2 {
+    //    std::thread::spawn(move || sek());
+    //}
+
+    sek();
+
+    //std::thread::sleep(Duration::from_secs(10000000));
 }

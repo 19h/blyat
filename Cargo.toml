@@ -16,8 +16,8 @@ panic = "unwind"
 rpath = true
 
 [profile.release]
-debug = true
-debug-assertions = true
+debug = false
+debug-assertions = false
 opt-level = 3
 panic = "abort"
 rpath = true
