@@ -433,7 +433,7 @@ fn sek() {
             false,
         );
 
-        let fn_c_str = std::ffi::CString::new("test.png").unwrap();
+        let fn_c_str = std::ffi::CString::new("output.png").unwrap();
 
         ffi::ulBitmapWritePNG(
             xbitmap,
